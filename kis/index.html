@@ -94,7 +94,7 @@ nav button.tab[aria-current=page]{color:var(--ink);font-weight:500}
 .sheet.on{transform:none}
 .grab{width:40px;height:5px;border-radius:3px;background:var(--line);margin:4px auto 10px}
 .sheet h4{margin:0 0 12px;font-size:19px;font-weight:700;display:flex;justify-content:space-between;align-items:center}
-.x{width:36px;height:36px;border-radius:12px;background:var(--card);display:grid;place-items:center}
+.x{width:44px;height:44px;border-radius:12px;background:var(--card);display:grid;place-items:center}
 .x svg{width:18px;height:18px}
 .seg{display:flex;background:var(--card);border-radius:13px;padding:3px;gap:3px;margin-bottom:12px}
 .seg button{flex:1;min-height:38px;border-radius:10px;font-size:15px;color:var(--mute)}
@@ -129,6 +129,9 @@ label.f>span{display:block;font-size:14px;color:var(--mute);margin-bottom:4px}
 .steps{display:flex;gap:6px;margin-bottom:18px}.steps i{flex:1;height:4px;border-radius:2px;background:var(--line)}.steps i.on{background:var(--accent)}
 textarea.inp{min-height:110px;padding:12px;font-size:14px;resize:vertical}
 .hide{display:none!important}
+.code{direction:ltr;unicode-bidi:isolate;text-align:left;background:var(--card);border-radius:10px;padding:10px 12px;font:14px/1.4 ui-monospace,Menlo,monospace;white-space:pre-wrap;word-break:break-all;margin:8px 0}
+.k2{direction:ltr;unicode-bidi:isolate;display:inline-block;background:var(--card);border-radius:6px;padding:0 6px;font:14px/1.5 ui-monospace,Menlo,monospace}
+.guide{padding-inline-start:22px;margin:0 0 14px}.guide li{margin-bottom:12px}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -214,7 +217,7 @@ const INCAT={n:'הכנסה',i:'in',c:'#0b7a43'};
 
 /* ---------- state ---------- */
 const DEF=()=>({v:1,setup:false,anchor:{bal:0,at:0},overdraft:0,cushion:300,billDay:10,target:'',alertDays:21,
- bills:[],incomes:[],sinks:[],vouchers:[],debts:[],log:[],skip:[],recent:[]});
+ bills:[],incomes:[],sinks:[],vouchers:[],debts:[],log:[],skip:[],recent:[],apple:{on:false,last:0,seen:[]}});
 let S=DEF(), M={};            // M: {'2026-11':[tx,...]}
 let view='home', q='';
 let mode='init';               // init | cloud | local
@@ -358,6 +361,8 @@ function renderHome(){
  if(!standalone&&!S.hideInstall)al.push('<div class="alert g"><div class="t"><b>להתקנה כאפליקציה</b><br>בספארי: כפתור השיתוף ← "הוסף למסך הבית". אחרי זה פותחים רק מהאייקון.</div><button class="btn s" data-a="hideinst">הבנתי</button></div>');
  const firstTx=allTx().map(t=>t.c||0).filter(Boolean).sort()[0];
  if(allTx().length>=5&&Date.now()-(S.lastBackup||firstTx||Date.now())>14*864e5)al.push('<div class="alert y"><div class="t"><b>זמן לגיבוי</b><br>שומרים קובץ ב-iCloud Drive, לקח 10 שניות.</div><button class="btn s" data-a="bkf">גיבוי</button></div>');
+ const ap=apR();
+ if(ap.on&&Date.now()-ap.last>2*864e5)al.push('<div class="alert g" id="aprem"><div class="t"><b>קליטת Apple Pay</b><br>עברו '+Math.floor((Date.now()-ap.last)/864e5)+' ימים מהקליטה האחרונה.</div><label class="btn">קליטה<input type="file" id="apf" accept=".txt,text/plain" class="hide"></label></div>');
  if(S.anchor.at&&Date.now()-S.anchor.at>=7*864e5)al.push('<div class="alert y"><div class="t"><b>זמן לבדיקה השבועית</b><br>20 שניות: מקלידים את היתרה מהבנק.</div><button class="btn s" data-a="recon">לבדיקה</button></div>');
  for(const i of c.dueInc)al.push('<div class="alert g"><div class="t"><b>'+esc(i.name)+' הגיע?</b><br>'+money(i.amt)+' היה צפוי ב-'+dfmt(i.date)+'</div><button class="btn s" data-a="incgot" data-id="'+esc(i.id)+'">כן</button></div>');
  if(c.bal<0)al.push('<div class="alert r"><div class="t"><b>אתה במינוס '+money(-c.bal)+'</b><br>'+(S.overdraft?'נשארו '+money(Math.max(0,S.overdraft+c.bal))+' עד קצה המסגרת.':'כדאי לבדוק מה המסגרת שלך.')+'</div></div>');
@@ -455,7 +460,7 @@ function listRes(){
   const ct=t.t==='inc'?INCAT:(CAT[t.cat]||CAT.other);
   const sub=[t.t==='inc'?'הכנסה':ct.n];
   if(t.m==='card'&&t.t==='exp'){const cd=chargeDates(t);sub.push(t.n>1?t.n+' תשלומים מ-'+dfmt(cd[0].d):'יחויב '+dfmt(cd[0].d))}
-  if((t.src||'').startsWith('bill:'))sub.push('קבוע');if(t.src==='imp')sub.push('מקובץ');
+  if((t.src||'').startsWith('bill:'))sub.push('קבוע');if(t.src==='imp')sub.push('מקובץ');if(t.src==='ap')sub.push('Apple Pay');
   block+='<button class="row" style="width:100%;text-align:start" data-tx="'+esc(t.id)+'"><div class="ic">'+icon(ct.i,ct.c)+'</div><div class="t"><b>'+esc(t.note||ct.n)+'</b><span>'+sub.join(' · ')+'</span></div><div class="amt '+(t.t==='inc'?'in':'')+'">'+(t.t==='inc'?'+':'')+money(t.amt,1)+'</div></button>';
  }
  flushB();$('#lres').innerHTML=h;
@@ -482,8 +487,10 @@ function renderMore(){
  let h='<h2 class="sec">עוד</h2>';
  h+='<div class="card"><h3>בדיקה שבועית<button class="btn s" data-a="recon">בדיקה עכשיו</button></h3><p class="note" style="margin-top:0">בדיקה אחרונה: '+(S.anchor.at?dlong(ds(new Date(S.anchor.at))):'—')+'</p>'+(S.log.length?S.log.slice(-5).reverse().map(l=>'<div class="row"><div class="t"><b style="font-weight:400">'+dlong(ds(new Date(l.at)))+'</b></div><div class="amt">'+(Math.abs(l.diff)<1?'מדויק':(l.diff>0?'+':'')+money(l.diff))+'</div></div>').join(''):'')+'</div>';
  h+='<div class="card"><h3>ייבוא פירוט אשראי</h3><p class="note" style="margin-top:0">פעם בחודש: מורידים את פירוט החיובים מהאתר או מהאפליקציה של חברת האשראי (Excel או CSV). מה שכבר רשמת יזוהה, ומה ששכחת יתווסף.</p><label class="btn full" style="margin-top:10px">בחירת קובץ<input type="file" id="imp" accept=".xlsx,.xls,.csv" class="hide"></label></div>';
+ const ap=apR();
+ h+='<div class="card"><h3>קליטת Apple Pay</h3><p class="note" style="margin-top:0">קיצור באייפון רושם כל תשלום Apple Pay לקובץ ב-iCloud Drive, וכאן קולטים אותו בלי להקליד. התשלומים נרשמים כהוצאות אשראי. '+(ap.last?'קליטה אחרונה: '+dlong(ds(new Date(ap.last)))+'.':'עוד לא נקלט קובץ.')+'</p><div class="opts" style="margin-top:10px"><label class="btn">קליטת Apple Pay<input type="file" id="apf" accept=".txt,text/plain" class="hide"></label><button class="btn g" data-a="apguide">מדריך הגדרה</button></div></div>';
  h+='<div class="card"><h3>הגדרות</h3>'+[
-  ['כרית ביטחון',money(S.cushion),'cushion'],['מסגרת אשראי בחשבון',money(S.overdraft),'overdraft'],['יום חיוב האשראי',S.billDay+' לחודש','billDay'],['הכסף צריך להספיק עד',S.target?dlong(S.target):'לא נקבע','target'],['התראה כשנשארו פחות מ',S.alertDays+' ימים','alertDays']]
+  ['כרית ביטחון',money(S.cushion),'cushion'],['מסגרת אשראי בחשבון',money(S.overdraft),'overdraft'],['יום חיוב האשראי',S.billDay+' לחודש','billDay'],['הכסף צריך להספיק עד',S.target?dlong(S.target):'לא נקבע','target'],['התראה כשנשארו פחות מ',S.alertDays+' ימים','alertDays'],['תזכורת לקליטת Apple Pay',ap.on?'פועל':'כבוי','apple']]
   .map(x=>'<button class="row" style="width:100%;text-align:start" data-set="'+x[2]+'"><div class="t"><b style="font-weight:400">'+x[0]+'</b></div><div class="amt">'+x[1]+'</div></button>').join('')+'</div>';
  h+='<div class="card"><h3>שמירה וגיבוי</h3><p class="note" style="margin-top:0">הנתונים נשמרים רק בטלפון הזה, ושום דבר לא נשלח לאינטרנט. כדאי לגבות פעם בשבועיים לקובץ ב-iCloud Drive: אם הטלפון יאבד או יוחלף, משחזרים מהקובץ. גיבוי אחרון: '+(S.lastBackup?dlong(ds(new Date(S.lastBackup))):'עוד לא')+'</p><div class="opts" style="margin-top:10px"><button class="btn s" data-a="bkf">גיבוי לקובץ</button><label class="btn g s">שחזור מקובץ<input type="file" id="rsf" accept=".json,application/json,text/plain" class="hide"></label><button class="btn g s" data-a="bk">העתקה כטקסט</button><button class="btn g s" data-a="rs">הדבקת טקסט</button></div></div>';
  h+='<div class="card"><h3>איך זה מחושב</h3><p class="note" style="margin-top:0">היתרה בחשבון, פחות חיובי אשראי שעוד לא ירדו, חיובים קבועים עד ההכנסה הבאה, הפרשה להוצאות שנתיות, חובות וכרית הביטחון. מה שנשאר מתחלק במספר הימים עד ההכנסה הבאה. אם הוצאת פחות היום, מחר יהיה לך יותר.</p></div>';
@@ -644,8 +651,11 @@ function editSetting(k){
  const T=todayS();
  const F={cushion:{label:'כרית ביטחון',type:'money',hint:'סכום שלא נוגעים בו. לא נספר כפנוי.'},overdraft:{label:'מסגרת אשראי בחשבון (מינוס מותר)',type:'money'},
   billDay:{label:'יום חיוב האשראי',type:'select',opts:[[2,'2 לחודש'],[10,'10 לחודש'],[15,'15 לחודש'],[20,'20 לחודש']].concat([1,5,8,12,25,28].map(d=>[d,d+' לחודש']))},
-  target:{label:'הכסף צריך להספיק עד',type:'date',opt:1,hint:'בשימוש רק כשאין הכנסה צפויה. אפשר להשאיר ריק.'},alertDays:{label:'להתריע כשהכסף מספיק לפחות מ (ימים)',type:'int',min:3,maxv:120}}[k];
- openForm('הגדרות',[{k,...F,val:S[k]}],v=>withUndo('נשמר',()=>{S[k]=k==='billDay'?+v[k]:v[k]}));
+  target:{label:'הכסף צריך להספיק עד',type:'date',opt:1,hint:'בשימוש רק כשאין הכנסה צפויה. אפשר להשאיר ריק.'},alertDays:{label:'להתריע כשהכסף מספיק לפחות מ (ימים)',type:'int',min:3,maxv:120},
+  apple:{label:'קליטת Apple Pay',type:'check',cl:'תזכורת במסך הבית',hint:'כשהתזכורת פועלת, במסך הבית יופיע תזכורת אם עברו יותר מיומיים מהקליטה האחרונה. הקליטה עצמה זמינה תמיד, בלשונית "עוד".'}}[k];
+ openForm('הגדרות',[{k,...F,val:k==='apple'?apR().on:S[k]}],v=>withUndo('נשמר',()=>{
+  if(k==='apple'){const a=apR();S.apple={on:!!v.apple,last:v.apple&&!a.last?Date.now():a.last,seen:a.seen}}
+  else S[k]=k==='billDay'?+v[k]:v[k]}));
 }
 
 /* ---------- reconcile ---------- */
@@ -704,6 +714,82 @@ function parseSheet(a,X){
  for(let i=hi+1;i<a.length;i++){const r=a[i];const d=pDate(r[cD],X);let v=r[cA];v=typeof v==='number'?v:parseAmt(String(v).replace(/[^\d.\-−]/g,''));
   if(!d||!isFinite(v)||v<=0)continue;out.push({d,amt:r2(v),name:String(cN>=0?r[cN]:'').trim()})}
  return out;
+}
+
+/* ---------- Apple Pay file (kis-applepay.txt): date;amount;merchant ---------- */
+const AP_SAMPLE='2026-11-26T14:03:00+02:00;₪45.90;קפה גרג';
+const MARKS=/[‎‏‪-‮⁦-⁩]/g;
+function apR(){const a=S.apple&&typeof S.apple==='object'?S.apple:{};return{on:!!a.on,last:+a.last||0,seen:Array.isArray(a.seen)?a.seen:[]}}
+function hash53(s){let h1=0xdeadbeef,h2=0x41c6ce57;for(let i=0;i<s.length;i++){const c=s.charCodeAt(i);h1=Math.imul(h1^c,2654435761);h2=Math.imul(h2^c,1597334677)}
+ h1=Math.imul(h1^(h1>>>16),2246822507)^Math.imul(h2^(h2>>>13),3266489909);h2=Math.imul(h2^(h2>>>16),2246822507)^Math.imul(h1^(h1>>>13),3266489909);return 4294967296*(2097151&h2)+(h1>>>0)}
+function apAmt(s){ // "₪1,234.50" | "1.234,50" | "12,50" | "45 ש"ח" -> number, NaN if not a clean amount
+ s=String(s).replace(/ש["״]ח|nis|ils|₪/gi,'').replace(/\s/g,'').replace('−','-');
+ if(!/^-?\d[\d.,]*$/.test(s))return NaN;
+ const neg=s[0]==='-';if(neg)s=s.slice(1);
+ const lc=s.lastIndexOf(','),ld=s.lastIndexOf('.');
+ if(lc>=0&&ld>=0){const dec=lc>ld?',':'.',th=dec===','?'.':',';s=s.split(th).join('').replace(dec,'.')}
+ else if(lc>=0)s=/^\d{1,3}(,\d{3})+$/.test(s)?s.replace(/,/g,''):/^\d+,\d{1,2}$/.test(s)?s.replace(',','.'):'x';
+ if(!/^\d+(\.\d+)?$/.test(s))return NaN;
+ return neg?-Number(s):Number(s);
+}
+function apDate(s){ // ISO 8601 -> local 'YYYY-MM-DD' (offset/Z converted to the phone's time zone), null if invalid
+ const m=String(s).trim().match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?\s*(Z|[+-]\d{2}(?::?\d{2})?)?)?$/i);
+ if(!m)return null;
+ const[,y,mo,d,hh='00',mi='00',ss='00',tz]=m;
+ if(+hh>23||+mi>59||+ss>59)return null;
+ let out=y+'-'+mo+'-'+d;if(ds(pd(out))!==out)return null;
+ if(tz){let z=tz.toUpperCase();if(z!=='Z')z=z.length===3?z+':00':z.length===5?z.slice(0,3)+':'+z.slice(3):z;
+  const dt=new Date(y+'-'+mo+'-'+d+'T'+hh+':'+mi+':'+ss+z);if(isNaN(dt))return null;out=ds(dt)}
+ return out>='2020-01-01'&&out<=addD(todayS(),1)?out:null;
+}
+function parseAp(text){
+ const rows=[],bad=[],cnt={};
+ String(text||'').replace(/^﻿/,'').split(/\r\n|\r|\n/).forEach((raw,i)=>{
+  if(!raw.trim())return;
+  const line=raw.replace(MARKS,''),a=line.indexOf(';'),b=a<0?-1:line.indexOf(';',a+1);
+  const fail=()=>bad.push({n:i+1,line:raw.trim().slice(0,80)});
+  if(b<0)return fail();
+  const dRaw=line.slice(0,a).trim(),d=apDate(dRaw),amt=r2(apAmt(line.slice(a+1,b))),name=line.slice(b+1).trim().replace(/\s+/g,' ');
+  if(!d||!(amt>0)||amt>=1e7)return fail();
+  const h=hash53(dRaw+'|'+amt.toFixed(2)+'|'+name).toString(36),k=cnt[h]=(cnt[h]??-1)+1; // k: identical lines in one file stay distinct
+  rows.push({id:'ap_'+h+'_'+k,d,amt,name:name||'Apple Pay'});
+ });
+ return{rows,bad};
+}
+async function importAp(f){
+ if(f.size>5e6){toast('הקובץ גדול מדי');return}
+ let text;try{text=await f.text()}catch(e){toast('לא הצלחתי לקרוא את הקובץ');return}
+ const{rows,bad}=parseAp(text);
+ if(!rows.length){openSheet(head('קליטת Apple Pay')+'<p>'+(bad.length?'לא מצאתי אף שורה תקינה ('+bad.length+' שורות לא נקראו).':'הקובץ ריק, עוד לא נרשמו בו תשלומים.')+'</p><p class="note">כל שורה צריכה להיראות כך:</p><div class="code">'+esc(AP_SAMPLE)+'</div><button class="btn full" style="margin-top:12px" data-a="apguide">מדריך הגדרה</button><button class="btn g full" style="margin-top:8px" data-close>סגירה</button>');return}
+ const seen=new Set(apR().seen),have=new Set(allTx().map(t=>t.id));
+ const ex=allTx().filter(t=>t.t==='exp'&&t.src!=='opening'&&t.src!=='ap'),used=new Set(); // Apple Pay rows dedupe by id only
+ const res=rows.filter(r=>!seen.has(r.id)&&!have.has(r.id)).map(r=>{const hit=ex.find(t=>!used.has(t.id)&&Math.abs(t.amt-r.amt)<=1&&Math.abs(diffD(t.d,r.d))<=3);if(hit)used.add(hit.id);return{...r,match:!!hit,cat:guessCat(r.name),pick:!hit}});
+ const nw=res.filter(r=>!r.match);
+ const commit=pick=>{
+  for(const r of pick){const m=mk(r.d);M[m]=M[m]||[];M[m].push({id:r.id,d:r.d,amt:r.amt,t:'exp',m:'card',cat:r.cat,note:r.name.slice(0,60),n:1,c:Date.now(),src:'ap'})}
+  const a=apR();S.apple={on:a.on,last:Date.now(),seen:[...new Set([...a.seen,...rows.map(r=>r.id)])].slice(-5000)};
+ };
+ if(!nw.length){commit([]);touch();render()}
+ openSheet(head('קליטת Apple Pay')
+  +'<div class="duo"><div class="tile"><div class="k">כבר רשומות</div><div class="v">'+(rows.length-nw.length)+'</div></div><div class="tile"><div class="k">חדשות</div><div class="v">'+nw.length+'</div></div></div>'
+  +(bad.length?'<p class="note" style="margin-top:0">'+bad.length+' שורות דולגו כי הפורמט שלהן לא תקין (הראשונה: שורה '+bad[0].n+').</p>':'')
+  +(nw.length?'<p class="note" style="margin-top:0">אלה תשלומים שעוד לא נרשמו. הם יתווספו כהוצאות אשראי. אפשר להוריד סימון ממה שלא רוצים.</p><div class="card" style="padding:4px 12px">'+nw.map((r,i)=>'<label class="row" style="cursor:pointer"><input type="checkbox" data-pi="'+i+'" '+(r.pick?'checked':'')+' style="width:22px;height:22px;flex:none"><div class="t"><b>'+esc(r.name)+'</b><span>'+dfmt(r.d)+' · '+esc(CAT[r.cat].n)+'</span></div><div class="amt">'+money(r.amt,1)+'</div></label>').join('')+'</div><button class="btn full" id="apadd" style="min-height:52px">הוספת '+nw.length+' עסקאות</button>':'<p>הכול כבר רשום. כל הכבוד!</p><button class="btn full" data-close>סגירה</button>'),sh=>{
+  sh.querySelectorAll('[data-pi]').forEach(c=>c.onchange=()=>{nw[+c.dataset.pi].pick=c.checked;sh.querySelector('#apadd').textContent='הוספת '+nw.filter(r=>r.pick).length+' עסקאות'});
+  const go=sh.querySelector('#apadd');if(go)go.onclick=()=>{const pick=nw.filter(r=>r.pick);closeSheet();withUndo(pick.length?'נקלטו '+pick.length+' תשלומי Apple Pay':'הקליטה הושלמה',()=>commit(pick))};
+ });
+}
+function apGuide(){
+ openSheet(head('מדריך: תשלומי Apple Pay לכיס')
+  +'<p class="note" style="margin-top:0">קיצור באייפון רושם כל תשלום לקובץ אחד ב-iCloud Drive, וכיס קולט אותו משם. הכול קורה בטלפון שלך ושום דבר לא נשלח לשרת. שמות הפעולות בקיצורים עשויים להיראות מעט אחרת בין גרסאות iOS.</p><ol class="guide">'
+  +'<li>פותחים את אפליקציית <b>קיצורים</b> (<bdi>Shortcuts</bdi>), לשונית <b>אוטומציה</b>, לוחצים על <b>+</b> ובוחרים <b>אוטומציה אישית</b> ואז <b>עסקה</b> (<bdi>Transaction</bdi>).</li>'
+  +'<li>בוחרים את הכרטיסים שרוצים לעקוב אחריהם. בסוף בוחרים <b>הרצה מיד</b> (<bdi>Run Immediately</bdi>) ומכבים את ההתראה על ההרצה.</li>'
+  +'<li>מוסיפים פעולה <b>תאריך נוכחי</b> (<bdi>Current Date</bdi>), ואחריה <b>עיצוב תאריך</b> (<bdi>Format Date</bdi>) בפורמט <b>ISO 8601</b>.</li>'
+  +'<li>מוסיפים פעולה <b>טקסט</b> (<bdi>Text</bdi>), וכותבים בה בדיוק בסדר הזה, עם נקודה-פסיק בין השדות: <b>התאריך המעוצב ; הסכום ; בית העסק</b>. את התאריך, הסכום ובית העסק בוחרים מהמשתנים של הקיצור (<bdi>Amount</bdi> ו-<bdi>Merchant</bdi> מתוך "קלט הקיצור"). דוגמה לשורה תקינה:<div class="code">'+esc(AP_SAMPLE)+'</div></li>'
+  +'<li>מוסיפים פעולה <b>הוספה לקובץ טקסט</b> (<bdi>Append to Text File</bdi>). בוחרים את הטקסט מהשלב הקודם, את הקובץ <span class="k2">kis-applepay.txt</span> ב-iCloud Drive, ומפעילים <b>הוספת שורה חדשה</b> (<bdi>Make New Line</bdi>).</li>'
+  +'<li>אם iOS מדווח שהקובץ לא נמצא, יוצרים אותו קודם: שומרים קובץ טקסט ריק בשם <span class="k2">kis-applepay.txt</span> ב-iCloud Drive, ובוחרים אותו שוב בפעולה.</li>'
+  +'<li>בכיס: לשונית <b>עוד</b>, <b>קליטת Apple Pay</b>, ובוחרים את הקובץ מ-iCloud Drive. בודקים את הסיכום ולוחצים על ההוספה.</li>'
+  +'<li>אפשר לקלוט שוב ושוב את אותו קובץ: תשלום שכבר נקלט לא יתווסף פעם נוספת, וגם לא תשלום שכבר נרשם ידנית או מפירוט האשראי. מדי פעם כדאי להפעיל "תזכורת לקליטת Apple Pay" בהגדרות.</li></ol>'
+  +'<p class="note">רוצים לבדוק לפני שמחכים לתשלום אמיתי? מוסיפים ידנית לקובץ את שורת הדוגמה למעלה ובוחרים אותו בכיס.</p><button class="btn full" data-close>הבנתי</button>');
 }
 
 /* ---------- backup / wipe ---------- */
@@ -780,10 +866,12 @@ document.addEventListener('click',e=>{
  if(t.dataset.tx){const x=allTx().find(y=>y.id===t.dataset.tx);if(x)openAdd(x);return}
  if(t.dataset.mo){listMonth=t.dataset.mo;document.querySelectorAll('[data-mo]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.mo===listMonth));return listRes()}
  if(a==='bkf')return backupFile();if(a==='hideinst'){S.hideInstall=1;touch(['settings']);return render()}
+ if(a==='apguide')return apGuide();
  if(a==='bk')return backup();if(a==='rs')return restore();if(a==='wipe')return wipe();
 });
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&S.setup&&mode!=='init'){housekeep();render()}});
-window.__kis={get S(){return S},get M(){return M},compute,get mode(){return mode}};
+document.addEventListener('change',e=>{const t=e.target;if(t.id==='apf'){const f=t.files[0];t.value='';if(f)importAp(f)}});
+window.__kis={get S(){return S},get M(){return M},compute,get mode(){return mode},parseAp,AP_SAMPLE};
 connect();
 if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost'))navigator.serviceWorker.register('sw.js').catch(()=>{});
 }
