@@ -94,7 +94,7 @@ nav button.tab[aria-current=page]{color:var(--ink);font-weight:500}
 .sheet.on{transform:none}
 .grab{width:40px;height:5px;border-radius:3px;background:var(--line);margin:4px auto 10px}
 .sheet h4{margin:0 0 12px;font-size:19px;font-weight:700;display:flex;justify-content:space-between;align-items:center}
-.x{width:36px;height:36px;border-radius:12px;background:var(--card);display:grid;place-items:center}
+.x{width:44px;height:44px;border-radius:12px;background:var(--card);display:grid;place-items:center}
 .x svg{width:18px;height:18px}
 .seg{display:flex;background:var(--card);border-radius:13px;padding:3px;gap:3px;margin-bottom:12px}
 .seg button{flex:1;min-height:38px;border-radius:10px;font-size:15px;color:var(--mute)}
@@ -129,6 +129,14 @@ label.f>span{display:block;font-size:14px;color:var(--mute);margin-bottom:4px}
 .steps{display:flex;gap:6px;margin-bottom:18px}.steps i{flex:1;height:4px;border-radius:2px;background:var(--line)}.steps i.on{background:var(--accent)}
 textarea.inp{min-height:110px;padding:12px;font-size:14px;resize:vertical}
 .hide{display:none!important}
+.cmp{display:grid;grid-template-columns:1.25fr 1fr 1fr;gap:8px 10px;align-items:center}
+.cmp .k{font-size:14px;color:var(--mute)}.cmp .hd{font-size:13px;color:var(--mute);font-weight:500}
+.cmp .v{font-size:19px;font-weight:700}.cmp .v .h{font-size:12px;font-weight:400;color:var(--red);margin-top:2px}
+.crow{display:grid;grid-template-columns:1.1fr 1fr 1fr 1.1fr;gap:6px;align-items:center;padding:9px 8px;border-radius:12px;font-size:14px}
+.crow.hd{color:var(--mute);font-size:12px;padding-block:0}.crow.sel{background:var(--card2);font-weight:700}
+.pill{display:inline-block;padding:2px 12px;border-radius:12px;font-size:14px;font-weight:500}
+.pill.ok{background:var(--ok);color:var(--okInk)}.pill.warn{background:var(--warn);color:var(--warnInk)}.pill.bad{background:var(--bad);color:var(--badInk)}
+.lg{display:flex;gap:16px;font-size:13px;color:var(--mute);margin-top:6px}.lg i{display:inline-block;width:22px;height:0;border-top:2.5px solid currentColor;vertical-align:middle;margin-inline-end:6px}.lg i.b{border-top-style:dashed;opacity:.6}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -341,11 +349,13 @@ function render(){
 }
 
 /* ---------- home ---------- */
-let roHome=null;
+const RO={};  // ResizeObservers of the charts, keyed by selector
+const hWordOf=c=>c.hKind==='inc'?'עד ההכנסה הבאה':c.hKind==='target'?'עד היעד שקבעת':'ל-30 הימים הקרובים';
+const runOf=c=>c.runDays===null?'יותר משנה':c.runDays===0?'כבר עכשיו':dfmt(addD(c.T,c.runDays));
 function renderHome(){
  const c=compute();const T=c.T;
  const used=c.daily>0?Math.min(100,c.spentToday/c.daily*100):100;
- const hWord=c.hKind==='inc'?'עד ההכנסה הבאה':c.hKind==='target'?'עד היעד שקבעת':'ל-30 הימים הקרובים';
+ const hWord=hWordOf(c);
  let html='';
  html+='<section class="hero '+(c.st==='ok'?'':c.st)+'" aria-live="polite"><div class="lbl">מותר לך להוציא היום</div>'
   +'<div class="big">'+money(c.safe)+'</div>'
@@ -363,7 +373,7 @@ function renderHome(){
  if(c.bal<0)al.push('<div class="alert r"><div class="t"><b>אתה במינוס '+money(-c.bal)+'</b><br>'+(S.overdraft?'נשארו '+money(Math.max(0,S.overdraft+c.bal))+' עד קצה המסגרת.':'כדאי לבדוק מה המסגרת שלך.')+'</div></div>');
  html+=al.join('');
  // tiles
- const runTxt=c.runDays===null?'יותר משנה':c.runDays===0?'כבר עכשיו':dfmt(addD(T,c.runDays));
+ const runTxt=runOf(c);
  html+='<div class="duo"><div class="tile"><div class="k">הכסף מספיק עד</div><div class="v">'+runTxt+'</div><div class="h">'+(c.avgReal!==null?'בקצב של '+money(c.avg)+' ליום':'לפי התקציב היומי')+'</div></div>'
   +'<div class="tile"><div class="k">בחשבון עכשיו</div><div class="v" style="'+(c.bal<0?'color:var(--red)':'')+'">'+money(c.bal)+'</div><div class="h">'+(c.pend.length?'אחרי חיוב האשראי: '+money(c.bal-c.pend.filter(p=>p.d===nextBill(T)).reduce((a,p)=>a+p.amt,0)):'אין חיובי אשראי ממתינים')+'</div></div></div>';
  // runway chart
@@ -405,29 +415,35 @@ function weekLine(T){
  if(ps>0){const ch=Math.round((sum-ps)/ps*100);s+=ch>5?' זה '+ch+'% יותר מהשבוע שלפני.':ch<-5?' זה '+(-ch)+'% פחות מהשבוע שלפני. יפה.':' בערך כמו השבוע שלפני.'}
  return s;
 }
-function drawRun(c){
- const box=$('#fig');if(!box)return;const s=box.querySelector('svg');
- const n=c.runDays===null?60:Math.min(365,Math.max(30,c.runDays+14));
- const pts=c.run.pts.slice(0,n+1);
+function drawRun(c,opt){ // opt: {sel, base}: base = the 'before' result, drawn dashed on the same axes
+ const sel=(opt&&opt.sel)||'#fig',b0=opt&&opt.base;
+ const box=$(sel);if(!box)return;const s=box.querySelector('svg');
+ const nOf=x=>x.runDays===null?60:Math.min(365,Math.max(30,x.runDays+14));
+ const n=b0?Math.max(nOf(c),nOf(b0)):nOf(c);
+ const pts=c.run.pts.slice(0,n+1),pts0=b0?b0.run.pts.slice(0,n+1):null;
  const draw=()=>{
   const W=s.clientWidth,H=s.clientHeight;if(!W)return;
-  const vals=pts.map(p=>p.b);let hi=Math.max(...vals,0),lo=Math.min(...vals,0);if(hi===lo)hi=lo+1;
+  const vals=pts.map(p=>p.b).concat(pts0?pts0.map(p=>p.b):[]);let hi=Math.max(...vals,0),lo=Math.min(...vals,0);if(hi===lo)hi=lo+1;
   const pl=8,pr=8,pt=18,pb=22;
   const X=i=>W-pr-(i/n)*(W-pl-pr); // RTL: today on the right
   const Y=v=>pt+(hi-v)/(hi-lo)*(H-pt-pb);
-  const line=pts.map((p,i)=>(i?'L':'M')+X(i).toFixed(1)+' '+Y(p.b).toFixed(1)).join('');
+  const path=ps=>ps.map((p,i)=>(i?'L':'M')+X(i).toFixed(1)+' '+Y(p.b).toFixed(1)).join('');
+  const line=path(pts);
   const area=line+'L'+X(n).toFixed(1)+' '+Y(0).toFixed(1)+'L'+X(0).toFixed(1)+' '+Y(0).toFixed(1)+'Z';
   const col=c.st==='bad'?'var(--red)':c.st==='warn'?'#c99700':'var(--green)';
-  s.style.direction='ltr';let g='<path d="'+area+'" fill="'+col+'" opacity=".12"/><path d="'+line+'" fill="none" stroke="'+col+'" stroke-width="2.2" stroke-linejoin="round"/>';
+  s.style.direction='ltr';let g='';
+  if(pts0)g+='<path d="'+path(pts0)+'" fill="none" stroke="currentColor" opacity=".5" stroke-width="2" stroke-dasharray="5 4" stroke-linejoin="round"/>';
+  g+='<path d="'+area+'" fill="'+col+'" opacity=".12"/><path d="'+line+'" fill="none" stroke="'+col+'" stroke-width="2.2" stroke-linejoin="round"/>';
   g+='<line x1="'+pl+'" x2="'+(W-pr)+'" y1="'+Y(0)+'" y2="'+Y(0)+'" stroke="currentColor" opacity=".25" stroke-dasharray="3 4"/>';
   g+='<text x="'+(W-pr)+'" y="'+(H-6)+'" font-size="12" fill="currentColor" opacity=".6" text-anchor="end">היום</text>';
   g+='<text x="'+pl+'" y="'+(H-6)+'" font-size="12" fill="currentColor" opacity=".6" text-anchor="start">'+esc(dfmt(pts[n].d))+'</text>';
+  if(b0&&b0.runDays!==null&&b0.runDays<=n)g+='<circle cx="'+X(b0.runDays)+'" cy="'+Y(0)+'" r="4" fill="currentColor" opacity=".5"/>';
   if(c.runDays!==null&&c.runDays<=n){const x=X(c.runDays);g+='<line x1="'+x+'" x2="'+x+'" y1="'+pt+'" y2="'+(H-pb)+'" stroke="var(--red)" stroke-width="1.5"/><circle cx="'+x+'" cy="'+Y(0)+'" r="4" fill="var(--red)"/>';
-   const lab='אפס ב-'+dfmt(addD(c.T,c.runDays));const tx=Math.min(W-pr-4,Math.max(pl+60,x));g+='<text x="'+tx+'" y="12" font-size="12" fill="var(--red)" text-anchor="middle">'+esc(lab)+'</text>'}
+   const lab='אפס ב-'+dfmt(addD(c.T,c.runDays));const an=x>W-70?'end':x<70?'start':'middle',tx=an==='end'?W-pr:an==='start'?pl:x;g+='<text x="'+tx+'" y="12" font-size="12" fill="var(--red)" text-anchor="'+an+'">'+esc(lab)+'</text>'}
   else g+='<text x="'+(W/2)+'" y="12" font-size="12" fill="currentColor" opacity=".6" text-anchor="middle">שיא '+esc(plain(hi))+'</text>';
   s.setAttribute('viewBox','0 0 '+W+' '+H);s.innerHTML=g;
  };
- if(roHome)roHome.disconnect();roHome=new ResizeObserver(draw);roHome.observe(s);draw();
+ if(RO[sel])RO[sel].disconnect();RO[sel]=new ResizeObserver(draw);RO[sel].observe(s);draw();
 }
 
 /* ---------- list ---------- */
@@ -505,6 +521,7 @@ function openSheet(html,onReady){
  setTimeout(()=>{const f=sh.querySelector('[autofocus]')||sh.querySelector('button,input');f&&f.focus({preventScroll:true})},60);
 }
 function closeSheet(){
+ if(RO['#simfig']){RO['#simfig'].disconnect();delete RO['#simfig']}
  const sh=$('#sheet'),sc=$('#scrim');sh.classList.remove('on');sc.classList.remove('on');document.body.style.overflow='';
  setTimeout(()=>{if(!sh.classList.contains('on')){sh.hidden=true;sc.hidden=true;sh.innerHTML=''}},260);
  lastFocus&&lastFocus.focus&&lastFocus.focus({preventScroll:true});
@@ -543,7 +560,7 @@ function openAdd(edit){
   +'<div class="opts" role="group" aria-label="תאריך"><button class="chip" data-d="'+T+'" aria-pressed="'+(st.d===T)+'">היום</button><button class="chip" data-d="'+addD(T,-1)+'" aria-pressed="'+(st.d===addD(T,-1))+'">אתמול</button><label class="chip" aria-pressed="'+(st.d!==T&&st.d!==addD(T,-1))+'">'+(st.d!==T&&st.d!==addD(T,-1)?dfmt(st.d):'תאריך אחר')+'<input type="date" id="dd" value="'+st.d+'" max="'+addD(T,0)+'" style="width:0;height:0;opacity:0;position:absolute"></label></div>'
   +'<label class="f"><span>הערה (לא חובה)</span><input class="inp" id="nt" value="'+esc(st.note)+'" placeholder="'+(isE?'קפה עם נועה':'מלגה')+'" maxlength="60"></label>'
   +(e?'<button class="btn g full" id="del" style="margin-bottom:8px;color:var(--red)">מחיקה</button>':'')
-  +'<div class="sticky"><button class="btn full" id="save" style="min-height:54px;font-size:17px">'+(e?'שמירת שינויים':'שמירה')+'</button></div>';
+  +'<div class="sticky" style="display:flex;gap:8px">'+(isE&&!e?'<button class="btn g" id="whatif" style="min-height:54px;font-size:17px">מה אם?</button>':'')+'<button class="btn" id="save" style="flex:1;min-height:54px;font-size:17px">'+(e?'שמירת שינויים':'שמירה')+'</button></div>';
  };
  const wire=sh=>{
   const rer=()=>{const n=sh.querySelector('#nt');st.note=n?n.value:st.note;const top=sh.scrollTop;sh.innerHTML='<div class="grab"></div>'+body();sh.scrollTop=top;sh.querySelectorAll('[data-close]').forEach(b=>b.onclick=closeSheet);wire(sh)};
@@ -557,21 +574,95 @@ function openAdd(edit){
   sh.querySelectorAll('[data-d]').forEach(b=>b.onclick=()=>{st.d=b.dataset.d;rer()});
   const dd=sh.querySelector('#dd');dd.onchange=()=>{if(dd.value&&dd.value<=T){st.d=dd.value;rer()}};
   dd.parentElement.onclick=ev=>{if(ev.target!==dd){try{dd.showPicker()}catch(x){dd.focus();dd.click()}}};
-  sh.querySelector('#save').onclick=()=>{
+  const mkTx=()=>{
    const a=r2(parseFloat(st.amt));
-   if(!(a>0)){sh.querySelector('#aerr').textContent='מקלידים סכום קודם';return}
+   if(!(a>0)){sh.querySelector('#aerr').textContent='מקלידים סכום קודם';return null}
    st.note=sh.querySelector('#nt').value.trim();
-   const t={id:e?e.id:uid(),d:st.d,amt:a,t:st.type,m:st.type==='inc'?'now':st.m,cat:st.type==='inc'?'inc':st.cat,note:st.note,n:st.type==='exp'&&st.m==='card'?st.n:1,c:e?e.c:Date.now(),src:e?e.src||'':''};
+   return{id:e?e.id:uid(),d:st.d,amt:a,t:st.type,m:st.type==='inc'?'now':st.m,cat:st.type==='inc'?'inc':st.cat,note:st.note,n:st.type==='exp'&&st.m==='card'?st.n:1,c:e?e.c:Date.now(),src:e?e.src||'':''};
+  };
+  const commit=t=>{
    closeSheet();
-   withUndo(e?'השינוי נשמר':(st.type==='inc'?'הכנסה של ':'נרשם ')+plain(a),()=>{
+   withUndo(e?'השינוי נשמר':(st.type==='inc'?'הכנסה של ':'נרשם ')+plain(t.amt),()=>{
     if(e){for(const m in M)M[m]=M[m].filter(x=>x.id!==e.id)}
     const m=mk(t.d);M[m]=M[m]||[];M[m].push(t);
     if(t.t==='exp'){S.recent=[t.cat,...S.recent.filter(x=>x!==t.cat)].slice(0,6)}
    });
   };
+  sh.querySelector('#save').onclick=()=>{const t=mkTx();if(t)commit(t)};
+  const wi=sh.querySelector('#whatif');
+  if(wi)wi.onclick=()=>{
+   const t=mkTx();if(!t)return;
+   const ns=[1,3,6,12],r=whatIf([null,t,...ns.map(n=>({...t,m:'card',n}))]);
+   sh.innerHTML='<div class="grab"></div>'+simHtml(t,r[0],r[1],ns,r.slice(2));sh.scrollTop=0;
+   sh.querySelectorAll('[data-close]').forEach(b=>b.onclick=closeSheet);
+   sh.querySelector('#simbuy').onclick=()=>commit(t);
+   sh.querySelector('#simno').onclick=closeSheet;
+   sh.querySelector('#simback').onclick=()=>{sh.innerHTML='<div class="grab"></div>'+body();sh.querySelectorAll('[data-close]').forEach(b=>b.onclick=closeSheet);wire(sh)};
+   drawRun(r[1],{sel:'#simfig',base:r[0]});
+  };
   const del=sh.querySelector('#del');if(del)del.onclick=()=>{closeSheet();withUndo('נמחק',()=>{for(const m in M)M[m]=M[m].filter(x=>x.id!==e.id);if((e.src||'').startsWith('bill:'))S.skip.push(e.id)})};
  };
  openSheet(body(),wire);
+}
+
+/* ---------- what-if: the same engine (compute/sim) run on a COPY of the data ---------- */
+// variants: [null | tx, ...] -> [compute(), ...]. The real S and M are swapped out for a clone only
+// while this runs (synchronously, restored in finally) and nothing is saved, so real data is never touched.
+function whatIf(variants){
+ const rS=S,rM=M;
+ try{
+  S=clone(rS);M=clone(rM);
+  return variants.map(t=>{
+   if(!t)return compute();
+   const m=mk(t.d);(M[m]=M[m]||[]).push(t);
+   try{return compute()}finally{M[m].pop()}
+  });
+ }finally{S=rS;M=rM}
+}
+// daily budget from here on = what is free now spread over the days left (compute().daily also counts today's spending, so a purchase today leaves it unchanged)
+const fwd=c=>c.avail>0?c.avail/c.daysLeft:0;
+const dm=d=>pd(d).toLocaleDateString('he-IL',{day:'numeric',month:'long'});
+const PILL={ok:'ירוק',warn:'צהוב',bad:'אדום'};
+function simLine(c0,c1){
+ const hd=c1.hKind==='auto'?'ב-30 הימים הקרובים':'עד ה-'+dm(c1.H);
+ let s;
+ if(c0.avail<=0)s='כבר עכשיו אין כסף פנוי '+hd+', והקנייה מגדילה את החוסר ל-'+money(-c1.avail)+'.';
+ else if(c1.avail<=0)s='הקנייה גדולה מהכסף הפנוי: התקציב היומי יורד מ-'+money(fwd(c0))+' לאפס'+(c1.avail<0?', ואחריה חסרים '+money(-c1.avail)+' '+hd:'')+'.';
+ else if(Math.round(fwd(c1))<Math.round(fwd(c0)))s='הקנייה מורידה את התקציב היומי מ-'+money(fwd(c0))+' ל-'+money(fwd(c1))+' '+hd+'.';
+ else s='הקנייה כמעט לא משנה את התקציב היומי ('+money(fwd(c0))+').';
+ const r0=c0.runDays,r1=c1.runDays,when=r1===null?'':dfmt(addD(c1.T,r1));
+ if(r1===null)s+=' הכסף ממשיך להספיק יותר משנה.';
+ else if(r1===0)s+=' הכסף נגמר כבר עכשיו.';
+ else if(r0===null)s+=' הכסף כבר לא יספיק יותר משנה: הוא יגמר ב-'+when+'.';
+ else if(r0>r1){const d=r0-r1;s+=' הכסף יגמר '+(d===1?'יום אחד':d+' ימים')+' מוקדם יותר, ב-'+when+'.'}
+ else s+=' תאריך סיום הכסף לא מתקצר: '+when+'.';
+ return s;
+}
+function simHtml(t,c0,c1,ns,vs){
+ const cell=(k,w,val,html,extra)=>'<div class="v" data-sim="'+k+'-'+w+'" data-val="'+val+'">'+html+(extra||'')+'</div>';
+ const d=r0=>r0===null?'':r0;
+ const delta=c0.runDays!==null&&c1.runDays!==null&&c0.runDays>c1.runDays?'<div class="h">'+(c0.runDays-c1.runDays)+' ימים מוקדם יותר</div>':'';
+ const row=(label,k,a,b,fa,fb,extra)=>'<div class="k">'+label+'</div>'+cell(k,'before',a,fa)+cell(k,'after',b,fb,extra);
+ const pill=st=>'<span class="pill '+st+'">'+PILL[st]+'</span>';
+ const how=t.m==='card'?(t.n>1?t.n+' תשלומים באשראי':'אשראי'):'ביט · מזומן · דביט';
+ return head('מה אם אקנה?')
+  +'<p class="note" style="margin-top:0">סימולציה בלבד, שום דבר לא נשמר. '+money(t.amt,1)+' · '+how+' · '+esc((CAT[t.cat]||CAT.other).n)+'</p>'
+  +'<button class="btn g" id="simback" style="margin-bottom:12px">חזרה לעריכה</button>'
+  +'<div class="card" id="simline" style="font-size:17px;line-height:1.5">'+simLine(c0,c1)+'</div>'
+  +'<div class="card"><div class="cmp"><div></div><div class="hd">לפני</div><div class="hd">אחרי</div>'
+  +row('מותר להוציא היום','safe',c0.safe,c1.safe,money(c0.safe),money(c1.safe))
+  +row('תקציב יומי '+hWordOf(c1),'daily',fwd(c0),fwd(c1),money(fwd(c0)),money(fwd(c1)))
+  +row('הכסף מספיק עד','run',d(c0.runDays),d(c1.runDays),runOf(c0),runOf(c1),delta)
+  +row('צבע המצב','st',c0.st,c1.st,pill(c0.st),pill(c1.st))
+  +'</div></div>'
+  +'<div class="card"><h3>היתרה הצפויה<small>לפני ואחרי</small></h3><div class="fig" id="simfig" role="img" aria-label="גרף היתרה הצפויה לפני ואחרי הקנייה"><svg></svg></div>'
+  +'<div class="lg"><span><i class="b"></i>לפני</span><span><i></i>אחרי</span></div></div>'
+  +'<div class="card"><h3>אותה קנייה בתשלומים<small>'+(t.m==='card'?'באשראי':'אם משלמים באשראי')+'</small></h3>'
+  +'<div class="crow hd"><div></div><div>מותר היום</div><div>תקציב יומי</div><div>הכסף עד</div></div>'
+  +ns.map((n,i)=>{const c=vs[i],sel=t.m==='card'&&t.n===n;
+   return '<div class="crow'+(sel?' sel':'')+'" data-n="'+n+'"'+(sel?' aria-current="true"':'')+'><div>'+(n===1?'תשלום אחד':n+' תשלומים')+'</div>'
+    +'<div data-sim="n'+n+'-safe" data-val="'+c.safe+'">'+money(c.safe)+'</div><div data-sim="n'+n+'-daily" data-val="'+fwd(c)+'">'+money(fwd(c))+'</div><div data-sim="n'+n+'-run" data-val="'+d(c.runDays)+'">'+runOf(c)+'</div></div>'}).join('')+'</div>'
+  +'<div class="sticky"><button class="btn full" id="simbuy" style="min-height:54px;font-size:17px">קונה</button><button class="btn g full" id="simno" style="margin-top:8px">לא עכשיו</button></div>';
 }
 
 /* ---------- forms for plan & settings ---------- */
@@ -783,7 +874,7 @@ document.addEventListener('click',e=>{
  if(a==='bk')return backup();if(a==='rs')return restore();if(a==='wipe')return wipe();
 });
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&S.setup&&mode!=='init'){housekeep();render()}});
-window.__kis={get S(){return S},get M(){return M},compute,get mode(){return mode}};
+window.__kis={get S(){return S},get M(){return M},compute,whatIf,get mode(){return mode}};
 connect();
 if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost'))navigator.serviceWorker.register('sw.js').catch(()=>{});
 }
