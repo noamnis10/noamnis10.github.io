@@ -1,0 +1,110 @@
+# CLAUDE.md
+
+מדריך לעבודה על **כיס** (`kis/`): אפליקציית תקציב אישית לסטודנט. PWA בעברית, RTL, מותאמת לאייפון, מתארחת ב-GitHub Pages (`noamnis10.github.io/kis`). ה-repo הוא אתר סטטי: אין build, אין שרת, אין תלויות בזמן ריצה חוץ מ-SheetJS שנשמר מקומית.
+
+## מבנה הפרויקט
+
+| נתיב | תפקיד |
+|---|---|
+| `index.html` (שורש) | עמוד הבית של האתר, רשימת האפליקציות |
+| `kis/index.html` | **כל האפליקציה בקובץ אחד**: CSS, HTML, ואז סקריפט אחד (`<script>{ ... }</script>`) עם עזרים, מצב, מנוע חישוב, ממשק, ייבוא, גיבוי ו-onboarding |
+| `kis/sw.js` | Service Worker. גרסת המטמון במשתנה `C` (כרגע `kis-v1.0.0`) |
+| `kis/manifest.json`, `kis/icons/` | התקנה למסך הבית |
+| `kis/lib/xlsx.min.js` | SheetJS 0.18.5, נטען עצלות רק בייבוא קובץ |
+| `tests/` | בדיקות Playwright (pytest) מקצה לקצה. `conftest.py` מכיל שרת מקומי ו-page-object בשם `App` |
+| `docs/kis-calculations.md` | איך התקציב מחושב (מקור האמת למשתמש) |
+| `CHANGELOG.md` | היסטוריית שינויים בעברית |
+| `.github/workflows/ci.yml` | מריץ `pytest` על כל PR ועל push ל-`main` |
+
+סדר הקוד בתוך `kis/index.html`: helpers → state (`S`, `M`, שמירה) → money engine → housekeep → UI (home, list, plan, more) → sheets/toast → quick add → forms → reconcile → import → backup/wipe → onboarding → global events. בסוף: `window.__kis` (נקודת הכניסה של הבדיקות) ו-`connect()`.
+
+## הרצה ובדיקות
+
+```bash
+python3 -m http.server 8000          # http://localhost:8000/kis/
+pip install -r tests/requirements.txt
+python -m playwright install chromium
+python -m pytest tests -q            # 9 בדיקות, כ-20 שניות
+```
+
+- אם יש Chromium מותקן מראש, אפשר `CHROME_PATH=/path/to/chromium` (ה-fixture קורא את המשתנה).
+- הבדיקות מקפיאות את השעון ל-**2026-11-26 15:00** (`Asia/Jerusalem`), viewport של 390x844, ושוללות את Google Fonts.
+- `App` ב-`conftest.py` מדמה משתמש: `open`, `onboard`, `add`, `calc`, `state`, `tab`. הבדיקה נכשלת אם יש `pageerror` כלשהו.
+- הבדיקות ניגשות ל-`window.__kis` (`S`, `M`, `compute`, `mode`). אל תשנו את שמות החשיפות האלה בלי לעדכן את `conftest.py`.
+- בחירת אלמנטים: לפי `id` ו-`data-*` (`#fab`, `#save`, `[data-cat]`, `[data-m]`, `nav [data-v]`). שינוי ב-attributes האלה שובר בדיקות.
+
+## מבנה הנתונים
+
+### מפתח השמירה
+- `localStorage['kis.v1']` = `JSON.stringify({S, M})`. **אסור לשנות את המפתח.**
+- עותק ב-IndexedDB: מסד `kis` גרסה 1, object store `kv`, מפתח `state`, הערך הוא אותה מחרוזת JSON. נכתב בדיחוי של 300ms אחרי כל שמירה.
+- טעינה (`connect`): קודם `localStorage`. אם `S.setup` שקר (למשל אחרי ניקוי אחסון), משחזרים מ-IndexedDB. אחרת מעתיקים את ה-localStorage ל-IndexedDB.
+- קובץ גיבוי: `{app:'kis', v:1, at, S, M}`. שחזור מחליף `S=Object.assign(DEF(), o.S)` ו-`M=o.M`.
+- המיזוג עם `DEF()` הוא **שטחי**: שדה חדש ברמה העליונה של `S` מקבל ברירת מחדל לבד. שינוי בצורה של איברים בתוך מערך (`bills`, `incomes` ועוד) או במבנה של `M` **דורש מיגרציה**. כיום אין מנגנון מיגרציה ו-`S.v` נשאר 1.
+
+### S: הגדרות ותכנון (`DEF()`)
+```
+v:1, setup:bool, anchor:{bal, at(ms)}, overdraft, cushion(300), billDay(10), target:'YYYY-MM-DD'|'', alertDays(21)
+bills:    [{id, name, amt, day(1-31), method:'card'|'bank', cat, start}]
+incomes:  [{id, name, amt, date, repeat:bool}]
+sinks:    [{id, name, amt, due, saved, from}]      // הוצאות שנתיות
+vouchers: [{id, name, amt, exp}]
+debts:    [{id, who, dir:'owe'|'owed', amt, note}]
+log:      [{at, diff}]    // היסטוריית בדיקות שבועיות, עד 20
+skip:     [txId]          // חיובים קבועים שנמחקו ידנית ולא יירשמו שוב, עד 200
+recent:   [catId]         // קטגוריות אחרונות לסדר המהיר, עד 6
+hideInstall?, lastBackup?(ms)
+```
+
+### M: תנועות לפי חודש
+`M = {'2026-11': [tx, ...]}`, והמפתח הוא `YYYY-MM` של תאריך העסקה.
+```
+tx: {id, d:'YYYY-MM-DD', amt(>0), t:'exp'|'inc', m:'card'|'now', cat, note, n(תשלומים), c(ms יצירה), src}
+```
+- הכנסה: `t:'inc'`, `m:'now'`, `cat:'inc'`.
+- `src`: `''` ידני, `'bill:<billId>'` חיוב קבוע (ה-id הוא `b_<billId>_<YYYY-MM>`), `'imp'` מייבוא, `'opening'` חיוב אשראי מלפני ההתחלה (id `opening`).
+- `isDisc(t)`: הוצאה "חופשית" = `exp` שאינה `bill:` ואינה `opening`. רק היא נספרת ב"הוצאת היום" ובקצב הממוצע.
+
+### מוסכמות
+- כספים: `r2()` מעגל לאגורות. תאריכים הם מחרוזות `YYYY-MM-DD` (השוואה מילונית תקינה), וחשבון ימים דרך `diffD` ב-UTC.
+- כל שינוי מצב עובר דרך `withUndo(msg, fn)`: מצלם `S` ו-`M`, מריץ, שומר (`touch`), מצייר ומציג ביטול. `touch(keys)` מתעלם מהארגומנט ושומר הכול (שריד).
+- מחרוזות מהמשתמש נכנסות ל-HTML דרך `esc()` בלבד.
+
+## מנוע החישוב (`compute()`, מתועד ב-`docs/kis-calculations.md`)
+
+1. **יתרה** (`balanceNow`): `S.anchor.bal` ועוד תנועות אחרי העוגן. הכנסה או הוצאה ב-`now` משפיעות מיד. הוצאה באשראי (`chargeDates`) מתחלקת ל-`n` חיובים, בכל אחד ביום `S.billDay` בחודשים שאחרי הרכישה, ויורדת רק כשתאריך החיוב עבר.
+2. **אופק** `H`: ההכנסה הצפויה הבאה, ואם אין, `S.target`, ואם אין, 30 יום. `daysLeft = max(1, H − היום)`.
+3. **שמור בצד**: חיובי אשראי ממתינים עד `H` (תמיד כולל התשלום הראשון), חיובים קבועים עד `H`, הפרשה להוצאות שנתיות (`sinkSaved`, ליניארית), חובות מסוג `owe`, וכרית ביטחון.
+4. **פנוי** `avail = bal − reserved`. **תקציב יומי** `daily = (avail + spentToday) / daysLeft`. **מותר היום** `safe = max(0, daily − spentToday)`.
+5. **"הכסף מספיק עד"** (`sim`): סימולציה של 365 יום עם הכנסות, חיובים קבועים, חיובי אשראי, הוצאות שנתיות וחובות, פחות קצב ממוצע של 28 ימים (או `daily` אם יש פחות מ-3 ימי נתונים).
+6. **צבע** (`st`): `bad` אם `bal<0` או `avail<=0` או `runDays<alertDays`. `warn` אם `runDays<2*alertDays` או `safe<daily*0.25`. אחרת `ok`.
+7. `housekeep()` (בכל פתיחה וחזרה לאפליקציה): רושם חיובים קבועים שהגיע זמנם (פעם אחת לכל חודש, בלי הנמחקים ב-`skip`), ומגלגל הוצאות שנתיות שעבר מועדן לשנה הבאה.
+
+הכנסה שתאריכה עבר לא נספרת כ"הכנסה הבאה" עד שהמשתמש מאשר קבלה (`receiveIncome`).
+
+## כללים שאסור לשבור
+
+1. **נתוני המשתמש במכשיר בלבד**, ב-`kis.v1` ובעותק IndexedDB. אסור לשנות את המפתח או את מבנה הנתונים בלי מיגרציה שמשמרת נתונים קיימים **ובלי בדיקה שמוכיחה זאת** (טוענים נתוני גרסה ישנה ובודקים שהכול נשמר).
+2. **בלי שרתים, התחברות או שליחת נתונים החוצה.** אין לקרוא ל-API חיצוני, לשלוח אנליטיקה או לטעון קוד מרשת. (שימו לב: הפונט Rubik נטען כרגע מ-Google Fonts, ראו "חוב ידוע".)
+3. **כל שינוי שמגיע למשתמש**: מעלים את `C` ב-`kis/sw.js`, ומוסיפים רשומה ל-`CHANGELOG.md`. תיעוד בלבד (כמו הקובץ הזה) לא מחייב.
+4. **כל פיצ'ר חדש מגיע עם בדיקה ב-`tests/`**, וכל הבדיקות חייבות לעבור לפני מיזוג.
+5. **עברית, RTL, מובייל קודם, מצב כהה, נגישות**: כפתורים בגובה 44px לפחות. מספרים נעטפים ב-`.n` (או `money()`) כדי שלא יתהפכו ב-RTL. צבעים דרך משתני CSS שמוגדרים עם `light-dark()`.
+6. **עבודה בענף נפרד ו-Pull Request עם תיאור בעברית. אף פעם לא push ישירות ל-`main`.**
+7. **כשחישוב משתנה, מעדכנים גם את `docs/kis-calculations.md`** (ואת הסעיף "איך זה מחושב" בלשונית "עוד" אם צריך).
+
+## זרימת עבודה לשינוי
+
+1. ענף חדש. מממשים בתוך `kis/index.html` (שומרים על הסגנון הקיים: קוד קומפקטי, בלי build, בלי ספריות חדשות).
+2. כותבים בדיקה, מריצים `python -m pytest tests -q`.
+3. אם השינוי מגיע למשתמש: מעלים את `C` ב-`sw.js` ומעדכנים `CHANGELOG.md`.
+4. אם החישוב השתנה: מעדכנים `docs/kis-calculations.md`.
+5. פותחים PR עם תיאור בעברית, ומחכים ל-CI ירוק.
+
+## חוב ידוע (ממצאי סקירה, 2026-11-26)
+
+- **גובה כפתורים:** כמה רכיבים מתחת ל-44px: `.btn.s` (36), `.chip` (36), `.seg button` (38), `.x` (36), `.stepper button` (40), כפתור הביטול ב-toast (36). אין בדיקה אוטומטית לכלל.
+- **Google Fonts:** `kis/index.html` טוען את Rubik מ-`fonts.googleapis.com`, כלומר בקשת רשת לצד שלישי בכל טעינה (בלי נתוני משתמש, אבל חושף IP). בעבודה בלי אינטרנט נופלים לפונט המערכת.
+- **שחזור מגיבוי** בודק רק `app`, `S`, `M` ולא את הצורה הפנימית. קובץ פגום עלול לשבור את הציור, ואז הנתונים כבר נשמרו.
+- **אין מנגנון מיגרציה** (`S.v` קבוע על 1).
+- ה-Service Worker מפעיל את הגרסה החדשה (`skipWaiting`) אבל הדף הפתוח לא מתרענן ואין הודעת עדכון למשתמש.
+- `touch(keys)` ו-`mode='cloud'` הם שרידים של גרסה עם סנכרון שכבר לא קיימת.
