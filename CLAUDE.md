@@ -8,11 +8,11 @@
 |---|---|
 | `index.html` (שורש) | עמוד הבית של האתר, רשימת האפליקציות |
 | `kis/index.html` | **כל האפליקציה בקובץ אחד**: CSS, HTML, ואז סקריפט אחד (`<script>{ ... }</script>`) עם עזרים, מצב, מנוע חישוב, ממשק, ייבוא, גיבוי ו-onboarding |
-| `kis/sw.js` | Service Worker. גרסת המטמון במשתנה `C` (כרגע `kis-v1.0.0`) |
+| `kis/sw.js` | Service Worker. גרסת המטמון במשתנה `C` (כרגע `kis-v1.1.0`) |
 | `kis/manifest.json`, `kis/icons/` | התקנה למסך הבית |
 | `kis/lib/xlsx.min.js` | SheetJS 0.18.5, נטען עצלות רק בייבוא קובץ |
 | `tests/` | בדיקות Playwright (pytest) מקצה לקצה. `conftest.py` מכיל שרת מקומי ו-page-object בשם `App` |
-| `docs/kis-calculations.md` | איך התקציב מחושב (מקור האמת למשתמש) |
+| `docs/kis-calculations.md` | איך התקציב מחושב (מקור האמת למשתמש), כולל סימולטור "מה אם?" |
 | `CHANGELOG.md` | היסטוריית שינויים בעברית |
 | `.github/workflows/ci.yml` | מריץ `pytest` על כל PR ועל push ל-`main` |
 
@@ -24,13 +24,13 @@
 python3 -m http.server 8000          # http://localhost:8000/kis/
 pip install -r tests/requirements.txt
 python -m playwright install chromium
-python -m pytest tests -q            # 9 בדיקות, כ-20 שניות
+python -m pytest tests -q            # כ-30 בדיקות, כדקה
 ```
 
 - אם יש Chromium מותקן מראש, אפשר `CHROME_PATH=/path/to/chromium` (ה-fixture קורא את המשתנה).
 - הבדיקות מקפיאות את השעון ל-**2026-11-26 15:00** (`Asia/Jerusalem`), viewport של 390x844, ושוללות את Google Fonts.
 - `App` ב-`conftest.py` מדמה משתמש: `open`, `onboard`, `add`, `calc`, `state`, `tab`. הבדיקה נכשלת אם יש `pageerror` כלשהו.
-- הבדיקות ניגשות ל-`window.__kis` (`S`, `M`, `compute`, `mode`). אל תשנו את שמות החשיפות האלה בלי לעדכן את `conftest.py`.
+- הבדיקות ניגשות ל-`window.__kis` (`S`, `M`, `compute`, `whatIf`, `mode`). אל תשנו את שמות החשיפות האלה בלי לעדכן את `conftest.py`.
 - בחירת אלמנטים: לפי `id` ו-`data-*` (`#fab`, `#save`, `[data-cat]`, `[data-m]`, `nav [data-v]`). שינוי ב-attributes האלה שובר בדיקות.
 
 ## מבנה הנתונים
@@ -70,6 +70,12 @@ tx: {id, d:'YYYY-MM-DD', amt(>0), t:'exp'|'inc', m:'card'|'now', cat, note, n(ת
 - כל שינוי מצב עובר דרך `withUndo(msg, fn)`: מצלם `S` ו-`M`, מריץ, שומר (`touch`), מצייר ומציג ביטול. `touch(keys)` מתעלם מהארגומנט ושומר הכול (שריד).
 - מחרוזות מהמשתמש נכנסות ל-HTML דרך `esc()` בלבד.
 
+### סימולטור "מה אם?" (`whatIf`, `simHtml`, `simLine`)
+- `whatIf([null|tx, ...])` מחליף זמנית את `S` ו-`M` בעותק (`clone`), מריץ `compute()` לכל וריאנט (דוחף את ההוצאה לעותק ושולף אותה), ומחזיר את `S` ו-`M` המקוריים ב-`finally`. אין בו `touch`/`lsSave`, ולכן אי אפשר שישמור משהו. **אין לשכפל את לוגיקת החישוב:** כל מספר במסך מגיע מ-`compute()`, והנגזרת היחידה היא `fwd(c)` (תקציב יומי להמשך = `avail/daysLeft`).
+- `openAdd` בנוי כך ש-`mkTx()` בונה את ההוצאה ו-`commit(t)` רושם אותה, והן משמשות גם את "שמירה" וגם את "קונה". אל תבנו הוצאה בדרך נפרדת, אחרת המספרים בסימולציה לא יתאימו לרישום האמיתי.
+- `drawRun(c,{sel,base})` מצייר גם גרף יחיד (מסך הבית) וגם שני תרחישים (סימולציה). `RO` שומר את ה-ResizeObserver לפי selector.
+- בדיקות: `tests/test_whatif.py` (בלי כתיבה ל-localStorage או IndexedDB, זהות האובייקטים נשמרת, המספרים שווים לרישום אמיתי, תשלומים פוגעים פחות).
+
 ## מנוע החישוב (`compute()`, מתועד ב-`docs/kis-calculations.md`)
 
 1. **יתרה** (`balanceNow`): `S.anchor.bal` ועוד תנועות אחרי העוגן. הכנסה או הוצאה ב-`now` משפיעות מיד. הוצאה באשראי (`chargeDates`) מתחלקת ל-`n` חיובים, בכל אחד ביום `S.billDay` בחודשים שאחרי הרכישה, ויורדת רק כשתאריך החיוב עבר.
@@ -102,7 +108,7 @@ tx: {id, d:'YYYY-MM-DD', amt(>0), t:'exp'|'inc', m:'card'|'now', cat, note, n(ת
 
 ## חוב ידוע (ממצאי סקירה, 2026-11-26)
 
-- **גובה כפתורים:** כמה רכיבים מתחת ל-44px: `.btn.s` (36), `.chip` (36), `.seg button` (38), `.x` (36), `.stepper button` (40), כפתור הביטול ב-toast (36). אין בדיקה אוטומטית לכלל.
+- **גובה כפתורים:** כמה רכיבים מתחת ל-44px: `.btn.s` (36), `.chip` (36), `.seg button` (38), `.stepper button` (40) (`.x` תוקן ל-44), כפתור הביטול ב-toast (36). אין בדיקה אוטומטית לכלל.
 - **Google Fonts:** `kis/index.html` טוען את Rubik מ-`fonts.googleapis.com`, כלומר בקשת רשת לצד שלישי בכל טעינה (בלי נתוני משתמש, אבל חושף IP). בעבודה בלי אינטרנט נופלים לפונט המערכת.
 - **שחזור מגיבוי** בודק רק `app`, `S`, `M` ולא את הצורה הפנימית. קובץ פגום עלול לשבור את הציור, ואז הנתונים כבר נשמרו.
 - **אין מנגנון מיגרציה** (`S.v` קבוע על 1).
